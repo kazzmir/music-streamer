@@ -3,6 +3,10 @@ package main
 import (
     "net/http"
     "log"
+    "time"
+    "os"
+    "os/signal"
+    "context"
     "github.com/hajimehoshi/go-mp3"
     "github.com/veandco/go-sdl2/sdl"
 )
@@ -27,7 +31,7 @@ func setupAudio(sampleRate float32, format sdl.AudioFormat) (sdl.AudioDeviceID, 
     return device, err
 }
 
-func stream(url string) error {
+func stream(url string, quit context.Context) error {
 
     log.Printf("Init")
     var err error
@@ -73,12 +77,26 @@ func stream(url string) error {
         sdl.PauseAudioDevice(audioDevice, false)
     })
 
-    for {
+    var totalBytes uint64
+
+    checker := time.NewTicker(1 * time.Second)
+    defer checker.Stop()
+
+    for quit.Err() == nil {
         n, err := decoder.Read(data)
         if err != nil {
             return err
         } else {
-            log.Printf("Decoded %v bytes", n)
+            // log.Printf("Decoded %v bytes", n)
+        }
+
+        totalBytes += uint64(n)
+
+        select {
+            case <-checker.C:
+                log.Printf("Bytes read %v = %0.2f kbytes/sec", totalBytes, float64(totalBytes) / 1024.0)
+                totalBytes = 0
+            default:
         }
 
         /*
@@ -101,9 +119,22 @@ func stream(url string) error {
 func main() {
     log.SetFlags(log.Ldate | log.Lshortfile | log.Lmicroseconds)
 
+    quit, cancel := context.WithCancel(context.Background())
+
+    signals := make(chan os.Signal, 2)
+    signal.Notify(signals, os.Interrupt)
+
+    go func(){
+        select {
+            case <-quit.Done():
+            case <-signals:
+                cancel()
+        }
+    }()
+
     sdl.Main(func(){
         url := "http://ice4.somafm.com/groovesalad-128-mp3"
-        err := stream(url)
+        err := stream(url, quit)
         if err != nil {
             log.Printf("Error: %v", err)
         }
