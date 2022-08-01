@@ -59,7 +59,13 @@ func stream(url string, quit context.Context) error {
 
     log.Printf("Connect to http stream")
 
-    response, err := http.Get(url)
+    var client http.Client
+    request, err := http.NewRequestWithContext(quit, "GET", url, nil)
+    if err != nil {
+        return err
+    }
+
+    response, err := client.Do(request)
     if err != nil {
         return err
     }
